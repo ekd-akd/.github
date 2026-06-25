@@ -1,0 +1,174 @@
+name: release (reusable, no-PR)
+
+# No-PR release on the self-hosted AKD runner [self-hosted, akd]. On push to main:
+#   1. derive the next version from conventional commits since the last tag,
+#   2. stamp it into the in-code version files (package.json / *.toml / *.py),
+#   3. commit that straight to main with [skip ci] (no PR),
+#   4. create the tag + GitHub release.
+# No release PR, no auto-merge, no PAT. A GITHUB_TOKEN push to main does not
+# re-trigger workflows (and [skip ci] is belt-and-suspenders), so no loop.
+#
+#   jobs:
+#     release:
+#       uses: ekd-akd/.github/.github/workflows/release.yml@main
+#       secrets: inherit
+#       with:
+#         version-files: |        # optional; omit for repos with no in-code version
+#           package.json
+#
+# Callers that build/deploy on release add a job gated on the `released` output
+# IN THE SAME RUN (a GITHUB_TOKEN-created tag/release triggers nothing).
+
+on:
+  workflow_call:
+    inputs:
+      version-files:
+        description: Newline-separated files to stamp the version into (package.json | *.toml [project].version | *.py __version__).
+        type: string
+        required: false
+        default: ''
+      runs-on:
+        # JSON array of runner labels. Default is the AKD self-hosted runner
+        # (no GitHub-hosted minutes on private repos). PUBLIC repos MUST override
+        # to '["ubuntu-latest"]': the self-hosted runner refuses public-repo jobs
+        # (allows_public_repositories=false) — and must, since it mounts
+        # docker.sock + /opt/nuklaut, so a fork PR there could own the controller.
+        # Public repos get unlimited free GitHub-hosted minutes anyway.
+        type: string
+        required: false
+        default: '["self-hosted", "akd"]'
+    outputs:
+      released:
+        description: "true if a new version was committed/tagged/released this run"
+        value: ${{ jobs.release.outputs.released }}
+      tag:
+        description: "the new tag (e.g. v1.2.3), empty when nothing was released"
+        value: ${{ jobs.release.outputs.tag }}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    outputs:
+      released: ${{ steps.rel.outputs.released || steps.bootstrap.outputs.released }}
+      tag: ${{ steps.rel.outputs.tag || steps.bootstrap.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history + tags, so the version can be computed
+
+      # First release for a brand-new repo. github-tag-action can't compute a
+      # delta with no prior tag: the range collapses to HEAD..HEAD, so it reports
+      # "Analysis of 0 commits complete: no release" and nothing ever ships. So
+      # bootstrap directly — tag HEAD at the in-code version (first version-file,
+      # else 0.1.0), push the tag, create the release — and skip computation this
+      # run. No-op once any tag exists (every already-released repo).
+      - name: Bootstrap first release when no tag exists
+        id: bootstrap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          FILES: ${{ inputs.version-files }}
+        run: |
+          set -euo pipefail
+          if [ -n "$(git tag)" ]; then echo "tags exist; skipping bootstrap"; exit 0; fi
+          version="$(python3 - <<'PY'
+          import os, re, json, pathlib
+          v = ""
+          for f in (l.strip() for l in os.environ.get("FILES", "").splitlines() if l.strip()):
+              p = pathlib.Path(f)
+              if not p.is_file():
+                  continue
+              t = p.read_text()
+              if f.endswith(".json"):
+                  v = str(json.loads(t).get("version", ""))
+              elif f.endswith(".toml"):
+                  m = re.search(r'(?m)^version\s*=\s*"([^"]*)"', t); v = m.group(1) if m else ""
+              else:
+                  m = re.search(r'(?m)^__version__\s*=\s*"([^"]*)"', t); v = m.group(1) if m else ""
+              if v:
+                  break
+          print(v or "0.1.0")
+          PY
+          )"
+          TAG="v${version}"
+          git config user.name "nuklaut-release"
+          git config user.email "release@akd.jonaheidsick.de"
+          git tag "$TAG"
+          git push origin "$TAG"
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/releases" \
+            -d "$(TAG="$TAG" python3 -c 'import json,os; print(json.dumps({"tag_name":os.environ["TAG"],"name":os.environ["TAG"],"generate_release_notes":True}))')"
+          { echo "released=true"; echo "tag=${TAG}"; } >> "$GITHUB_OUTPUT"
+
+      # Conventional commits since the last tag -> next semver (dry run: compute
+      # only, so we can stamp files and tag the bump commit ourselves). No feat/
+      # fix/breaking commit -> empty new_tag -> nothing released.
+      - name: Compute next version
+        id: ver
+        if: ${{ steps.bootstrap.outputs.released != 'true' }}
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: false
+          release_branches: main
+          dry_run: true
+
+      - name: Stamp version, commit to main, tag + release
+        id: rel
+        if: ${{ steps.bootstrap.outputs.released != 'true' && steps.ver.outputs.new_tag != '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.ver.outputs.new_tag }}
+          VERSION: ${{ steps.ver.outputs.new_version }}
+          FILES: ${{ inputs.version-files }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            [ -f "$f" ] || { echo "version-file '$f' not present, skipping"; continue; }
+            python3 - "$f" "$VERSION" <<'PY'
+          import sys, re, json, pathlib
+          path, v = sys.argv[1], sys.argv[2]
+          p = pathlib.Path(path); t = p.read_text()
+          if path.endswith(".json"):
+              d = json.loads(t); d["version"] = v
+              p.write_text(json.dumps(d, indent=2) + "\n")
+          elif path.endswith(".toml"):
+              t2, n = re.subn(r'(?m)^version\s*=\s*"[^"]*"', f'version = "{v}"', t, count=1)
+              assert n == 1, f"{path}: no '[project] version = \"...\"' line"
+              p.write_text(t2)
+          else:
+              t2, n = re.subn(r'(?m)^(__version__\s*=\s*)"[^"]*"', rf'\g<1>"{v}"', t, count=1)
+              assert n == 1, f"{path}: no '__version__ = \"...\"' line"
+              p.write_text(t2)
+          PY
+            git add -- "$f"
+          done <<< "$FILES"
+
+          git config user.name "nuklaut-release"
+          git config user.email "release@akd.jonaheidsick.de"
+          # Only commit if a version-file actually changed. When the computed
+          # version equals what's already in-code (e.g. nothing to bump), there's
+          # no staged diff and `git commit` would fail under `set -e` — guard it.
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): ${TAG} [skip ci]"
+            git push origin HEAD:main
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+
+          # Create the GitHub release via REST (no dependency on gh being on the
+          # self-hosted runner). generate_release_notes builds notes from history.
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/releases" \
+            -d "$(python3 -c 'import json,os; print(json.dumps({"tag_name":os.environ["TAG"],"name":os.environ["TAG"],"generate_release_notes":True}))')"
+
+          { echo "released=true"; echo "tag=${TAG}"; } >> "$GITHUB_OUTPUT"

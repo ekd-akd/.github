@@ -1,0 +1,6 @@
+# Custom self-hosted runner labels used by the nuklaut controller's persistent
+# runner (the AKD controller). Without this, actionlint flags `runs-on: [self-hosted, akd]` as an
+# unknown label.
+self-hosted-runner:
+  labels:
+    - akd

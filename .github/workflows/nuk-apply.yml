@@ -1,0 +1,83 @@
+name: nuk-apply
+
+# Reusable DEPLOY-ONLY workflow for nuklaut.
+#
+# For apps whose images are already built + pushed to GHCR by their own CI
+# (multi-image stacks like myapp: ghcr.io/<owner>/<repo>/backend + /frontend).
+# Unlike nuk-deploy.yml it does NOT build.
+#
+# GHCR auth model: the in-container runner (runs as root, with the host docker
+# socket + /opt/nuklaut bind-mounted) logs in and pulls the images into the SHARED
+# docker daemon, then runs `nuk apply` in-process — no sudo. An updated :latest is
+# recreated because its image id changed in the daemon.
+#
+# Runs on the controller's persistent runner [self-hosted, akd].
+#
+# Caller:
+#   jobs:
+#     deploy:
+#       uses: ekd-akd/.github/.github/workflows/nuk-apply.yml@main
+#       secrets: inherit
+#       with:
+#         manifest: .nuklaut/deployment.yml          # optional (default)
+#         compose_file: docker-compose.nuklaut.yml   # optional (default docker-compose.yml)
+
+on:
+  workflow_call:
+    inputs:
+      manifest:
+        description: Path to the nuk manifest in the caller repo
+        type: string
+        required: false
+        default: .nuklaut/deployment.yml
+      compose_file:
+        description: Compose file (repo-relative) used to pre-pull images as the runner
+        type: string
+        required: false
+        default: docker-compose.yml
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, akd]
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify manifest exists
+        run: |
+          test -f "${{ inputs.manifest }}" \
+            || { echo "::error::manifest ${{ inputs.manifest }} not found in repo"; exit 1; }
+
+      # Login + pull as the RUNNER (no sudo) so private images land in the shared
+      # daemon. The deploy user reuses them without needing GHCR creds.
+      - name: Pull images into the shared docker daemon
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          # Enumerate images straight from the compose FILE, NOT via
+          # `docker compose config --images`: that resolves each service's
+          # env_file:, so it fails for this runner user whenever a compose
+          # references a deploy-owned 0600 secret (e.g.
+          # /opt/nuklaut/secrets/<app>-db.env -> "permission denied"). The old
+          # `2>/dev/null | xargs -r` swallowed that error and pulled NOTHING, so
+          # the daemon kept a stale :latest and up -d ran old code. Parse the
+          # raw YAML instead (runner can always read the repo checkout).
+          images=$(grep -oE '^[[:space:]]*image:[[:space:]]*[^[:space:]#]+' "${{ inputs.compose_file }}" | awk '{print $2}' | sort -u)
+          if [ -z "$images" ]; then
+            echo "::warning::no image: entries in ${{ inputs.compose_file }} — nothing to pull"
+            exit 0
+          fi
+          echo "Pulling images:"; printf '  %s\n' $images
+          printf '%s\n' $images | xargs -n1 docker pull
+
+      # apply: write state + Traefik dynamic file + edge override, then up -d.
+      # Images are already in the daemon, so no pull happens as the deploy user.
+      - name: nuk apply
+        run: |
+          /usr/local/bin/nuk apply \
+            --repo-path "$GITHUB_WORKSPACE" \
+            "${{ inputs.manifest }}"
+
+      - name: Show deployment state
+        run: /usr/local/bin/nuk list
