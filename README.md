@@ -44,8 +44,8 @@ Set these at **Org → Settings → Secrets and variables → Actions**; callers
 
 | Secret | Used by | Notes |
 |---|---|---|
-| `ORG_SENTRY_DSN` | `nuk-deploy.yml` | Written into `/opt/nuklaut/secrets/_shared.env` on every deploy. Edit the list in the workflow to add more. |
-| `ORG_OPENAI_API_KEY` | `nuk-deploy.yml` | Same shared-env mechanism. |
+| `ORG_SENTRY_DSN` | `nuk-deploy.yml` | Optional. Written into `/opt/nuklaut/secrets/_shared.env` on every deploy. Edit the list in the workflow to add more. |
+| `ORG_ANTHROPIC_API_KEY` | `nuk-deploy.yml` | Optional. Injected as `ANTHROPIC_API_KEY` into deployed apps. |
 
 The deploy workflows authenticate to GHCR with the built-in `GITHUB_TOKEN` — no PAT.
 
