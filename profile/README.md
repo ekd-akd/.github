@@ -14,11 +14,11 @@ CLI. Reusable CI/CD and release workflows live in
 duplicate them.
 
 - **One edge.** Traefik terminates TLS (per-host Let's Encrypt over HTTP-01) and routes
-  every app under `*.akd.jonaheidsick.de`.
+  every app under `*.test.a-kd.net`.
 - **Shared data.** A single Postgres (pgvector) + Redis stack; `nuk` provisions a per-app
   database/role and Redis ACL on request.
 - **Deploy from CI.** Push to `main` → build → `nuk apply` on a persistent self-hosted
-  runner. Per-PR preview environments at `pr-<n>.<app>.akd.jonaheidsick.de`.
+  runner. Per-PR preview environments at `pr-<n>.<app>.test.a-kd.net`.
 
 ## Conventions
 

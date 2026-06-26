@@ -55,7 +55,7 @@ jobs:
       released: ${{ steps.rel.outputs.released || steps.bootstrap.outputs.released }}
       tag: ${{ steps.rel.outputs.tag || steps.bootstrap.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # full history + tags, so the version can be computed
 
@@ -95,7 +95,7 @@ jobs:
           )"
           TAG="v${version}"
           git config user.name "nuklaut-release"
-          git config user.email "release@akd.jonaheidsick.de"
+          git config user.email "release@a-kd.net"
           git tag "$TAG"
           git push origin "$TAG"
           curl -fsSL -X POST \
@@ -152,7 +152,7 @@ jobs:
           done <<< "$FILES"
 
           git config user.name "nuklaut-release"
-          git config user.email "release@akd.jonaheidsick.de"
+          git config user.email "release@a-kd.net"
           # Only commit if a version-file actually changed. When the computed
           # version equals what's already in-code (e.g. nothing to bump), there's
           # no staged diff and `git commit` would fail under `set -e` — guard it.
