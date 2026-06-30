@@ -98,7 +98,7 @@ jobs:
           SHARED_ENV: |
             # Managed by ekd-akd/.github nuk-deploy.yml. Regenerated on every deploy.
             SENTRY_DSN=${{ secrets.ORG_SENTRY_DSN }}
-            ANTHROPIC_API_KEY=${{ secrets.ORG_ANTHROPIC_API_KEY }}
+            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           printf '%s\n' "$SHARED_ENV" \
             | install -m 600 /dev/stdin /opt/nuklaut/secrets/_shared.env
