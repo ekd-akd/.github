@@ -90,19 +90,6 @@ jobs:
           printf '%s\n' "$APP_ENV_CONTENT" \
             | install -m 600 /dev/stdin "/opt/nuklaut/secrets/${REPO}.env"
 
-      # Write the shared env file on every deploy. Add new org-wide secrets here as needed —
-      # they must be defined at https://github.com/organizations/<org>/settings/secrets/actions
-      # and the caller workflow must use `secrets: inherit`.
-      - name: Write org-shared env file
-        env:
-          SHARED_ENV: |
-            # Managed by ekd-akd/.github nuk-deploy.yml. Regenerated on every deploy.
-            SENTRY_DSN=${{ secrets.ORG_SENTRY_DSN }}
-            ANTHROPIC_API_KEY=${{ secrets.ORG_ANTHROPIC_API_KEY }}
-        run: |
-          printf '%s\n' "$SHARED_ENV" \
-            | install -m 600 /dev/stdin /opt/nuklaut/secrets/_shared.env
-
       # --repo-path skips nuk's internal git clone — works for private repos
       # without needing any auth on the controller (the runner already has the
       # checkout via the workflow's automatic GITHUB_TOKEN).
