@@ -75,10 +75,15 @@ jobs:
             -f "${{ inputs.dockerfile }}" \
             "${{ inputs.build_context }}"
 
+      # Push only the two tags built above — NOT --all-tags, which would also
+      # re-push every stale sha tag accumulated on the self-hosted runner
+      # (dozens of manifest negotiations per deploy for no benefit).
       - name: Push image
         env:
           IMG: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
-        run: docker push --all-tags "$IMG"
+        run: |
+          docker push "$IMG:${{ github.sha }}"
+          docker push "$IMG:latest"
 
       # Write per-app env file from the APP_ENV repo secret. Creates an empty file if the
       # secret is absent — nuk still references it via envFrom.secretRef, which is harmless.
