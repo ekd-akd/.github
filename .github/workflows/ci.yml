@@ -54,6 +54,16 @@ on:
         type: string
         required: false
         default: "src"
+      ruff-version:
+        description: >-
+          python: ruff version pin for `uvx ruff@<version>`. `uvx ruff` with no
+          pin always fetches PyPI's latest release at run time, ignoring the
+          repo's own pyproject/uv.lock pin — a new ruff release can then add or
+          promote rules that fail every repo's CI simultaneously with no repo
+          change. Bump this deliberately (and test) rather than dropping it.
+        type: string
+        required: false
+        default: "0.15.22"
 
 permissions:
   contents: read
@@ -76,12 +86,16 @@ jobs:
       # deliberate per-repo step, not a surprise that blocks every auto-merge.
       - name: Ruff lint
         if: ${{ inputs.language == 'python' }}
-        run: uvx ruff check .
+        env:
+          RUFF_VERSION: ${{ inputs.ruff-version }}
+        run: uvx "ruff@$RUFF_VERSION" check .
 
       # Opt-in (ruff-format: true): enforce formatting as a hard gate.
       - name: Ruff format check
         if: ${{ inputs.language == 'python' && inputs.ruff-format }}
-        run: uvx ruff format --check .
+        env:
+          RUFF_VERSION: ${{ inputs.ruff-version }}
+        run: uvx "ruff@$RUFF_VERSION" format --check .
 
       # Opt-in (ty: true): run the `ty` type checker over ty-paths. Needs the
       # project's deps, so sync first. Path comes via env (never interpolate a
