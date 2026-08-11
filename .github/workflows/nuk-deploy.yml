@@ -12,6 +12,9 @@
 #   - Manifest must exist at deployment.yml (repo root) in the caller repo
 #   - Per-app env file is at /opt/nuklaut/secrets/<repo>.env — written by this workflow
 #     from the caller repo's APP_ENV secret (multiline key=value). No SSH needed.
+#     If APP_ENV is unset (e.g. the app has moved to the sops secrets facility —
+#     see ekd-akd/infra's facilities.secrets), this step is a no-op and leaves
+#     whatever nuk's provisioning already wrote in place.
 #   - Org-shared env file is at /opt/nuklaut/secrets/_shared.env (rewritten on every deploy
 #     from org-wide secrets listed below)
 #   - The runner executes in a container as root (RUN_AS_ROOT) with /opt/nuklaut + the
@@ -88,15 +91,17 @@ jobs:
           docker push "$IMG:${{ github.sha }}"
           docker push "$IMG:latest"
 
-      # Write per-app env file from the APP_ENV repo secret. Creates an empty file if the
-      # secret is absent — nuk still references it via envFrom.secretRef, which is harmless.
       - name: Write per-app env file
         env:
           REPO: ${{ github.event.repository.name }}
           APP_ENV_CONTENT: ${{ secrets.APP_ENV }}
         run: |
-          printf '%s\n' "$APP_ENV_CONTENT" \
-            | install -m 600 /dev/stdin "/opt/nuklaut/secrets/${REPO}.env"
+          if [ -z "$APP_ENV_CONTENT" ]; then
+            echo "APP_ENV is unset/empty — leaving /opt/nuklaut/secrets/${REPO}.env untouched (apps on the sops secrets facility rely on this)."
+          else
+            printf '%s\n' "$APP_ENV_CONTENT" \
+              | install -m 600 /dev/stdin "/opt/nuklaut/secrets/${REPO}.env"
+          fi
 
       # --repo-path skips nuk's internal git clone — works for private repos
       # without needing any auth on the controller (the runner already has the
