@@ -111,7 +111,7 @@ jobs:
       - name: Compute next version
         id: ver
         if: ${{ steps.bootstrap.outputs.released != 'true' }}
-        uses: mathieudutour/github-tag-action@v6.2
+        uses: mathieudutour/github-tag-action@v7
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: false
