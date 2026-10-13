@@ -91,13 +91,16 @@ into the caller's workspace. Two things opt a caller in:
 - Secret `SUBMODULE_TOKEN` — a token that can read the private submodule repos.
   Set it as a **repo secret in the caller** (not an org secret) and expose it with
   `secrets: inherit`. A fine-grained PAT or a GitHub App installation token with
-  **Contents: read-only** on the submodule repositories is enough; nothing broader is
-  needed.
+  **Contents: read-only** is enough; nothing broader is needed. `actions/checkout` uses a
+  single `token` for the whole step, so this token authenticates **both** the caller
+  repo's own fetch **and** the submodules. It must therefore read the submodule repo(s)
+  and — when the caller repo is private — the caller repo itself; a public caller repo
+  needs read on the submodule repo(s) only.
 
-The caller's `.gitmodules` must point at an **HTTPS** URL
-(`https://github.com/ekd-akd/<repo>.git`). `actions/checkout` injects the token into the
-HTTPS remote; it does **not** authenticate `git@github.com:` SSH URLs, so a submodule
-configured over SSH will fail to clone.
+Both HTTPS and `git@github.com:` SSH URLs in `.gitmodules` work: `actions/checkout`
+rewrites SSH URLs to HTTPS when no `ssh-key` is set, so the token is applied either way.
+Prefer the **HTTPS** URL (`https://github.com/ekd-akd/<repo>.git`) — that is the form AP5
+records submodule URLs in. The token just needs read access.
 
 ```yaml
 # .github/workflows/ci.yml
@@ -119,6 +122,10 @@ jobs:
     with:
       submodules: 'true'
 ```
+
+**Build context:** a `.dockerignore` can exclude the checked-out submodule (or the
+Dockerfile may not `COPY` it), giving a green checkout but an image that lacks the
+submodule. Ensure the build context includes the submodule when the image needs it.
 
 Without `SUBMODULE_TOKEN` the checkout **fails on purpose**: `actions/checkout` then
 falls back to the automatic `github.token`, which is scoped to the caller repo and
