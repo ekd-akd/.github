@@ -80,6 +80,52 @@ jobs:
 App manifests live at `.nuklaut/deployment.yml` in the app repo (see the controller
 README in `ekd-akd/vps` for the manifest shape).
 
+### Private submodules
+
+`ci.yml`, `app-ci.yml` and `nuk-deploy.yml` can check out **private git submodules**
+into the caller's workspace. Two things opt a caller in:
+
+- Input `submodules` — passed straight to `actions/checkout` (`'false'` | `'true'` |
+  `'recursive'`). Defaults to `'false'`, so a caller that sets nothing keeps today's
+  behaviour exactly.
+- Secret `SUBMODULE_TOKEN` — a token that can read the private submodule repos.
+  Set it as a **repo secret in the caller** (not an org secret) and expose it with
+  `secrets: inherit`. A fine-grained PAT or a GitHub App installation token with
+  **Contents: read-only** on the submodule repositories is enough; nothing broader is
+  needed.
+
+The caller's `.gitmodules` must point at an **HTTPS** URL
+(`https://github.com/ekd-akd/<repo>.git`). `actions/checkout` injects the token into the
+HTTPS remote; it does **not** authenticate `git@github.com:` SSH URLs, so a submodule
+configured over SSH will fail to clone.
+
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  ci:
+    uses: ekd-akd/.github/.github/workflows/ci.yml@main
+    secrets: inherit
+    with:
+      language: python
+      submodules: 'true'   # 'recursive' to pull nested submodules as well
+```
+
+```yaml
+# .github/workflows/deploy.yml
+jobs:
+  deploy:
+    uses: ekd-akd/.github/.github/workflows/nuk-deploy.yml@main
+    secrets: inherit
+    with:
+      submodules: 'true'
+```
+
+Without `SUBMODULE_TOKEN` the checkout **fails on purpose**: `actions/checkout` then
+falls back to the automatic `github.token`, which is scoped to the caller repo and
+cannot read a private submodule repo. A caller that sets `submodules: 'true'` but never
+provides a readable token gets a hard clone failure — a deliberate signal, not silent
+misbehaviour.
+
 ## Community-health defaults
 
 `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, the issue forms in

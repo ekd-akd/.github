@@ -40,12 +40,20 @@ on:
         required: false
         type: string
         default: deployment.yml
+      submodules:
+        description: "actions/checkout submodules: 'false' | 'true' | 'recursive'"
+        type: string
+        required: false
+        default: 'false'
     secrets:
       APP_ENV:
         description: >
           Per-app secrets as a multiline key=value env file.
           Add this as a GitHub repo secret named APP_ENV.
           Written to /opt/nuklaut/secrets/<repo>.env on every deploy.
+        required: false
+      SUBMODULE_TOKEN:
+        description: "Token with contents:read on the private submodule repos; set as a repo secret in the caller"
         required: false
 
 permissions:
@@ -57,6 +65,9 @@ jobs:
     runs-on: [self-hosted, akd]
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+          token: ${{ secrets.SUBMODULE_TOKEN || github.token }}
 
       - name: Verify manifest exists
         env:
