@@ -47,6 +47,15 @@ on:
         type: string
         required: false
         default: ''
+      submodules:
+        description: "actions/checkout submodules: 'false' | 'true' | 'recursive'"
+        type: string
+        required: false
+        default: 'false'
+    secrets:
+      SUBMODULE_TOKEN:
+        description: "Token with contents:read on the private submodule repos; set as a repo secret in the caller"
+        required: false
 
 jobs:
   build:
@@ -60,6 +69,9 @@ jobs:
         image: ${{ fromJSON(inputs.images) }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: ${{ inputs.submodules }}
+          token: ${{ secrets.SUBMODULE_TOKEN || github.token }}
 
       - name: Resolve lowercase image ref
         id: img
