@@ -15,6 +15,7 @@ name: release (reusable, no-PR)
 #       with:
 #         version-files: |        # optional; omit for repos with no in-code version
 #           package.json
+#         pre-1-breaking-minor: true   # optional; during 0.x a breaking change bumps minor
 #
 # Callers that build/deploy on release add a job gated on the `released` output
 # IN THE SAME RUN (a GITHUB_TOKEN-created tag/release triggers nothing).
@@ -37,6 +38,11 @@ on:
         type: string
         required: false
         default: '["self-hosted", "akd"]'
+      pre-1-breaking-minor:
+        # While the last tag is 0.x, a breaking change bumps minor instead of major (semver §4). Default off: existing callers unchanged.
+        type: boolean
+        required: false
+        default: false
     outputs:
       released:
         description: "true if a new version was committed/tagged/released this run"
@@ -118,14 +124,42 @@ jobs:
           release_branches: main
           dry_run: true
 
+      # Pre-1.0 rule (semver §4): while 0.x, a breaking change bumps minor, not
+      # major. github-tag-action sees `feat!` and yields 1.0.0; rewrite that to
+      # the next minor of the previous tag. Example: v0.5.1 + `feat!` -> v0.6.0.
+      # Runs only when there is something to release; passthrough otherwise.
+      - name: Apply pre-1.0 breaking-change rule
+        id: final
+        if: ${{ steps.ver.outputs.new_tag != '' }}
+        env:
+          PREVIOUS_TAG: ${{ steps.ver.outputs.previous_tag }}
+          NEW_VERSION: ${{ steps.ver.outputs.new_version }}
+          NEW_TAG: ${{ steps.ver.outputs.new_tag }}
+          PRE_1_BREAKING_MINOR: ${{ inputs.pre-1-breaking-minor }}
+        run: |
+          set -euo pipefail
+          version="$NEW_VERSION"
+          prev="${PREVIOUS_TAG#v}"
+          prev_major="${prev%%.*}"
+          new_major="${version%%.*}"
+          if [ "$PRE_1_BREAKING_MINOR" = "true" ] && [ "$prev_major" = "0" ] && [ "$new_major" -gt 0 ]; then
+            rest="${prev#*.}"
+            minor="${rest%%.*}"
+            version="0.$((minor + 1)).0"
+            echo "pre-1.0: $PREVIOUS_TAG -> $version (was $NEW_VERSION)"
+          else
+            echo "no pre-1.0 rewrite: $PREVIOUS_TAG -> $version"
+          fi
+          { echo "version=$version"; echo "tag=v$version"; } >> "$GITHUB_OUTPUT"
+
       - name: Stamp version, commit to main, tag + release
         id: rel
-        if: ${{ steps.bootstrap.outputs.released != 'true' && steps.ver.outputs.new_tag != '' }}
+        if: ${{ steps.bootstrap.outputs.released != 'true' && steps.final.outputs.tag != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          TAG: ${{ steps.ver.outputs.new_tag }}
-          VERSION: ${{ steps.ver.outputs.new_version }}
+          TAG: ${{ steps.final.outputs.tag }}
+          VERSION: ${{ steps.final.outputs.version }}
           FILES: ${{ inputs.version-files }}
         run: |
           set -euo pipefail
