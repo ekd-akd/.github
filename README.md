@@ -15,7 +15,7 @@ Apps call these with `uses:` — they don't duplicate the logic.
 
 | Workflow | Runs on | What it does |
 |---|---|---|
-| `ci.yml` | `ubuntu-latest` | Minimum CI baseline: lint + test for `python` \| `node` \| `static`. Steps self-skip when their tooling is absent. Meant to be the required status check on `main`. |
+| `ci.yml` | `ubuntu-latest` (input `runs-on`, private AKD repos pass `["self-hosted", "akd"]`) | Minimum CI baseline: lint + test for `python` \| `node` \| `static`. Steps self-skip when their tooling is absent. Meant to be the required status check on `main`. |
 | `app-ci.yml` | `ubuntu-latest` | Build + push one or more images to `ghcr.io/ekd-akd/<repo>/<name>` from a JSON matrix. No runner needed — keeps image builds decoupled from the controller. |
 | `release.yml` | `[self-hosted, akd]` (override to `["ubuntu-latest"]` on public repos) | Conventional-commit, no-PR release: derive next version, stamp version files, commit `[skip ci]`, tag + GitHub release. |
 | `nuk-apply.yml` | `[self-hosted, akd]` | Deploy-only: pull already-built GHCR images into the shared daemon, then `nuk apply`. |

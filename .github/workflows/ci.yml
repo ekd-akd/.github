@@ -69,6 +69,15 @@ on:
         type: string
         required: false
         default: 'false'
+      runs-on:
+        # JSON array of runner labels. Default stays GitHub-hosted, so public repos
+        # (and this one) keep working unchanged. Private AKD repos opt in with
+        # '["self-hosted", "akd"]', like release.yml. The self-hosted runner refuses
+        # public-repo jobs (allows_public_repositories=false).
+        description: "JSON array of runner labels"
+        type: string
+        required: false
+        default: '["ubuntu-latest"]'
     secrets:
       SUBMODULE_TOKEN:
         description: "Token with contents:read on the private submodule repos; set as a repo secret in the caller"
@@ -79,7 +88,7 @@ permissions:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
       - uses: actions/checkout@v7
         with:
