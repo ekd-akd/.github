@@ -15,6 +15,9 @@
 #     If APP_ENV is unset (e.g. the app has moved to the sops secrets facility —
 #     see ekd-akd/infra's facilities.secrets), this step is a no-op and leaves
 #     whatever nuk's provisioning already wrote in place.
+#   - `apply: false` skips the manifest check, the env file and `nuk apply`: the app is
+#     carried by the converge loop (ekd-akd/infra deployments/<name>.yml), this workflow
+#     only builds and pushes the image.
 #   - Org-shared env file is at /opt/nuklaut/secrets/_shared.env (rewritten on every deploy
 #     from org-wide secrets listed below)
 #   - The runner executes in a container as root (RUN_AS_ROOT) with /opt/nuklaut + the
@@ -45,6 +48,15 @@ on:
         type: string
         required: false
         default: 'false'
+      apply:
+        description: >
+          Run `nuk apply` (and write the per-app env file) after the image is pushed.
+          Set to false for apps that the nuk converge loop on the box carries from
+          ekd-akd/infra (deployments/<name>.yml); the workflow then only builds and
+          pushes the image and the loop recreates the service from the new image.
+        required: false
+        type: boolean
+        default: true
     secrets:
       APP_ENV:
         description: >
@@ -70,6 +82,7 @@ jobs:
           token: ${{ secrets.SUBMODULE_TOKEN || github.token }}
 
       - name: Verify manifest exists
+        if: inputs.apply
         env:
           MANIFEST: ${{ inputs.manifest }}
         run: |
@@ -103,6 +116,7 @@ jobs:
           docker push "$IMG:latest"
 
       - name: Write per-app env file
+        if: inputs.apply
         env:
           REPO: ${{ github.event.repository.name }}
           APP_ENV_CONTENT: ${{ secrets.APP_ENV }}
@@ -118,10 +132,12 @@ jobs:
       # without needing any auth on the controller (the runner already has the
       # checkout via the workflow's automatic GITHUB_TOKEN).
       - name: Apply manifest
+        if: inputs.apply
         run: |
           /usr/local/bin/nuk apply \
             --repo-path "$GITHUB_WORKSPACE" \
             "${{ inputs.manifest }}"
 
       - name: Show deployment state
+        if: inputs.apply
         run: /usr/local/bin/nuk list
