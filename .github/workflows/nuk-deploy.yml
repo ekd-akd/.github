@@ -104,33 +104,48 @@ jobs:
       # goes in as a BuildKit secret (`RUN --mount=type=secret,id=github_token` in the Dockerfile), never as a
       # build arg, so it appears in no layer, no history and no log. Only when the repo declares such a
       # dependency and a token is present; otherwise the build is exactly the plain `docker build` below.
+      # Token source, first hit wins: the host file /etc/nuklaut/secrets/private-deps-token (first non-blank
+      # line; the self-hosted runner mounts /etc/nuklaut read-only), else secrets ORG_PAT / SUBMODULE_TOKEN.
       - name: Detect private ekd-akd dependencies
         id: privdeps
         env:
-          HAVE_TOKEN: ${{ (secrets.ORG_PAT || secrets.SUBMODULE_TOKEN) != '' }}
+          HAVE_SECRET: ${{ (secrets.ORG_PAT || secrets.SUBMODULE_TOKEN) != '' }}
+          TOKEN_FILE: /etc/nuklaut/secrets/private-deps-token
         run: |
           set -euo pipefail
           if ! git grep -q -E '(git\+|git = ")https://github\.com/ekd-akd/' -- '*pyproject.toml' '*uv.lock'; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "$HAVE_TOKEN" != "true" ]; then
-            echo "::warning::private ekd-akd git dependency found but no ORG_PAT/SUBMODULE_TOKEN reached this workflow (caller needs 'secrets: inherit' AND a repo-level secret: org secrets are not delivered to private repos on the Free plan); the image build will fail"
+          if [ -r "$TOKEN_FILE" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "private ekd-akd dependency found — passing github_token (host file) as BuildKit secret"
+          elif [ "$HAVE_SECRET" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "private ekd-akd dependency found — passing github_token (repo secret) as BuildKit secret"
+          else
+            echo "::warning::private ekd-akd git dependency found but no token: neither $TOKEN_FILE on the runner nor ORG_PAT/SUBMODULE_TOKEN reached this job; the image build will fail"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            exit 0
           fi
-          echo "enabled=true" >> "$GITHUB_OUTPUT"
-          echo "private ekd-akd dependency found — passing github_token as BuildKit secret"
 
       - name: Build image
         env:
           IMG: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
-          PRIVATE_DEPS_TOKEN: ${{ steps.privdeps.outputs.enabled == 'true' && (secrets.ORG_PAT || secrets.SUBMODULE_TOKEN) || '' }}
+          PRIVATE_DEPS: ${{ steps.privdeps.outputs.enabled }}
+          SECRET_TOKEN: ${{ steps.privdeps.outputs.enabled == 'true' && (secrets.ORG_PAT || secrets.SUBMODULE_TOKEN) || '' }}
+          TOKEN_FILE: /etc/nuklaut/secrets/private-deps-token
         run: |
           secret_args=()
-          if [ -n "${PRIVATE_DEPS_TOKEN:-}" ]; then
-            export DOCKER_BUILDKIT=1
-            secret_args=(--secret "id=github_token,env=PRIVATE_DEPS_TOKEN")
+          if [ "$PRIVATE_DEPS" = "true" ]; then
+            PRIVATE_DEPS_TOKEN="$SECRET_TOKEN"
+            if [ -r "$TOKEN_FILE" ]; then
+              PRIVATE_DEPS_TOKEN="$(grep -m1 -v '^[[:space:]]*$' "$TOKEN_FILE" | tr -d '\r' || true)"
+            fi
+            if [ -n "$PRIVATE_DEPS_TOKEN" ]; then
+              echo "::add-mask::$PRIVATE_DEPS_TOKEN"
+              export PRIVATE_DEPS_TOKEN DOCKER_BUILDKIT=1
+              secret_args=(--secret "id=github_token,env=PRIVATE_DEPS_TOKEN")
+            fi
           fi
           docker build \
             ${secret_args[@]+"${secret_args[@]}"} \
