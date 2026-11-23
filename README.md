@@ -133,6 +133,35 @@ cannot read a private submodule repo. A caller that sets `submodules: 'true'` bu
 provides a readable token gets a hard clone failure — a deliberate signal, not silent
 misbehaviour.
 
+### Private git dependencies (Python)
+
+A Python repo can depend on a private ekd-akd repo as a git dependency, e.g.
+`akd-auth = { git = "https://github.com/ekd-akd/akd-auth.git", tag = "v0.1.0" }` in
+`[tool.uv.sources]`. `ci.yml` and `nuk-deploy.yml` detect this (`git = "https://github.com/ekd-akd/…"` in
+`pyproject.toml` / `uv.lock`) and, only then, look for a read token. Source, first hit wins:
+
+1. **Host file `/etc/nuklaut/secrets/private-deps-token`** (first non-blank line = the token). The self-hosted
+   runners (`akd-runner-1/2`) run their jobs as root and mount `/etc/nuklaut` read-only, so every job on them sees
+   this file. No GitHub secret is needed in any consuming repo. The file is delivered by hand on the box (see
+   `ekd-akd/infra`, `docs/runner-private-deps.md`); nuk's `sopsFile` decrypts only into `/run/nuklaut` on the host,
+   which the runner containers do not mount.
+2. Secrets `ORG_PAT` / `SUBMODULE_TOKEN` (for GitHub-hosted runners or boxes without the file). Callers pass them with
+   `secrets: inherit`. On the org's Free plan an org-level secret is not delivered to private repos (checked: it arrives
+   empty), so this needs a repo-level secret in the consumer.
+
+What each workflow does with the token:
+
+- **`ci.yml`** sets git credentials for `github.com/ekd-akd/` through job-scoped `GIT_CONFIG_*` variables before
+  `uv sync` runs. Nothing is written to `~/.gitconfig`, so it cannot outlive the job on the self-hosted runner.
+  Private repos must call it with `runs-on: '["self-hosted", "akd"]'` to see the host file.
+- **`nuk-deploy.yml`** passes the token to `docker build` as BuildKit secret `github_token`. The Dockerfile reads it
+  with `RUN --mount=type=secret,id=github_token` in the *same* `RUN` that runs `uv sync`, and must not persist it
+  (no `git config --global`, no `ARG`/`ENV`); use `GIT_CONFIG_*` variables inside that one command.
+
+Without a token, or in repos without such a dependency, the steps are skipped and behaviour is unchanged.
+Dependabot runs get no org secrets and run on GitHub-hosted runners, so Dependabot PRs on repos with a private
+dependency fail `uv sync`.
+
 ## Community-health defaults
 
 `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, the issue forms in
