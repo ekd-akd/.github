@@ -115,7 +115,7 @@ jobs:
             exit 0
           fi
           if [ "$HAVE_TOKEN" != "true" ]; then
-            echo "::warning::private ekd-akd git dependency found but no ORG_PAT/SUBMODULE_TOKEN reached this workflow (caller needs 'secrets: inherit'); the image build will fail"
+            echo "::warning::private ekd-akd git dependency found but no ORG_PAT/SUBMODULE_TOKEN reached this workflow (caller needs 'secrets: inherit' AND a repo-level secret: org secrets are not delivered to private repos on the Free plan); the image build will fail"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

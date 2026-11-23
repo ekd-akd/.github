@@ -116,7 +116,7 @@ jobs:
             exit 0
           fi
           if [ -z "${TOKEN:-}" ]; then
-            echo "::warning::private ekd-akd git dependency found but no SUBMODULE_TOKEN/ORG_PAT reached this workflow (callers need 'secrets: inherit'); uv sync will fail"
+            echo "::warning::private ekd-akd git dependency found but no ORG_PAT/SUBMODULE_TOKEN reached this workflow (caller needs 'secrets: inherit' AND a repo-level secret: org secrets are not delivered to private repos on the Free plan); uv sync will fail"
             exit 0
           fi
           echo "::add-mask::$TOKEN"

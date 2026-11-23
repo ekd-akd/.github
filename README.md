@@ -147,7 +147,9 @@ A Python repo can depend on a private ekd-akd repo as a git dependency, e.g.
   (no `git config --global`, no `ARG`/`ENV`); use `GIT_CONFIG_*` variables inside that one command.
 
 Callers must pass secrets with `secrets: inherit` (as every `nuk-deploy` caller already does; `ci.yml` callers add
-it). Without a token, or in repos without such a dependency, the steps are skipped and behaviour is unchanged.
+it). **The token must exist as a repo-level secret in the consuming repo** (name `ORG_PAT` or `SUBMODULE_TOKEN`):
+on the org's Free plan an org-level secret is not delivered to private repos (checked: `ORG_PAT` with visibility
+"private repositories" arrives empty in a private repo's CI, although the API lists it as available). Without a token, or in repos without such a dependency, the steps are skipped and behaviour is unchanged.
 Dependabot runs get no org secrets, so Dependabot PRs on repos with a private dependency fail `uv sync` until the
 token is also added as a Dependabot secret.
 
