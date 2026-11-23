@@ -133,6 +133,24 @@ cannot read a private submodule repo. A caller that sets `submodules: 'true'` bu
 provides a readable token gets a hard clone failure — a deliberate signal, not silent
 misbehaviour.
 
+### Private git dependencies (Python)
+
+A Python repo can depend on a private ekd-akd repo as a git dependency, e.g.
+`akd-auth = { git = "https://github.com/ekd-akd/akd-auth.git", tag = "v0.1.0" }` in
+`[tool.uv.sources]`. `ci.yml` and `nuk-deploy.yml` detect this (`git = "https://github.com/ekd-akd/…"` in
+`pyproject.toml` / `uv.lock`) and, only then, use the org secret `ORG_PAT` (fallback `SUBMODULE_TOKEN`):
+
+- **`ci.yml`** sets git credentials for `github.com/ekd-akd/` through job-scoped `GIT_CONFIG_*` variables before
+  `uv sync` runs. Nothing is written to `~/.gitconfig`, so it cannot outlive the job on the self-hosted runner.
+- **`nuk-deploy.yml`** passes the token to `docker build` as BuildKit secret `github_token`. The Dockerfile reads it
+  with `RUN --mount=type=secret,id=github_token` in the *same* `RUN` that runs `uv sync`, and must not persist it
+  (no `git config --global`, no `ARG`/`ENV`); use `GIT_CONFIG_*` variables inside that one command.
+
+Callers must pass secrets with `secrets: inherit` (as every `nuk-deploy` caller already does; `ci.yml` callers add
+it). Without a token, or in repos without such a dependency, the steps are skipped and behaviour is unchanged.
+Dependabot runs get no org secrets, so Dependabot PRs on repos with a private dependency fail `uv sync` until the
+token is also added as a Dependabot secret.
+
 ## Community-health defaults
 
 `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, the issue forms in

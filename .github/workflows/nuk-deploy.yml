@@ -67,6 +67,11 @@ on:
       SUBMODULE_TOKEN:
         description: "Token with contents:read on the private submodule repos; set as a repo secret in the caller"
         required: false
+      ORG_PAT:
+        description: >-
+          Org-wide read token, handed to `docker build` as BuildKit secret `github_token` when the repo has a
+          private ekd-akd git dependency (SUBMODULE_TOKEN is the fallback). Reaches the workflow with `secrets: inherit`.
+        required: false
 
 permissions:
   contents: read
@@ -95,11 +100,40 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+      # Private ekd-akd git dependencies (e.g. akd-auth) are fetched inside the image build by `uv sync`. The token
+      # goes in as a BuildKit secret (`RUN --mount=type=secret,id=github_token` in the Dockerfile), never as a
+      # build arg, so it appears in no layer, no history and no log. Only when the repo declares such a
+      # dependency and a token is present; otherwise the build is exactly the plain `docker build` below.
+      - name: Detect private ekd-akd dependencies
+        id: privdeps
+        env:
+          HAVE_TOKEN: ${{ (secrets.ORG_PAT || secrets.SUBMODULE_TOKEN) != '' }}
+        run: |
+          set -euo pipefail
+          if ! git grep -q -E '(git\+|git = ")https://github\.com/ekd-akd/' -- '*pyproject.toml' '*uv.lock'; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$HAVE_TOKEN" != "true" ]; then
+            echo "::warning::private ekd-akd git dependency found but no ORG_PAT/SUBMODULE_TOKEN reached this workflow (caller needs 'secrets: inherit'); the image build will fail"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "private ekd-akd dependency found — passing github_token as BuildKit secret"
+
       - name: Build image
         env:
           IMG: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
+          PRIVATE_DEPS_TOKEN: ${{ steps.privdeps.outputs.enabled == 'true' && (secrets.ORG_PAT || secrets.SUBMODULE_TOKEN) || '' }}
         run: |
+          secret_args=()
+          if [ -n "${PRIVATE_DEPS_TOKEN:-}" ]; then
+            export DOCKER_BUILDKIT=1
+            secret_args=(--secret "id=github_token,env=PRIVATE_DEPS_TOKEN")
+          fi
           docker build \
+            ${secret_args[@]+"${secret_args[@]}"} \
             -t "$IMG:${{ github.sha }}" \
             -t "$IMG:latest" \
             -f "${{ inputs.dockerfile }}" \

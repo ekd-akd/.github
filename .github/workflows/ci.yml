@@ -82,6 +82,11 @@ on:
       SUBMODULE_TOKEN:
         description: "Token with contents:read on the private submodule repos; set as a repo secret in the caller"
         required: false
+      ORG_PAT:
+        description: >-
+          Org-wide read token, used to fetch private ekd-akd git dependencies (SUBMODULE_TOKEN is the fallback).
+          Only used when the repo actually has such a dependency. Reaches the workflow with `secrets: inherit`.
+        required: false
 
 permissions:
   contents: read
@@ -94,6 +99,33 @@ jobs:
         with:
           submodules: ${{ inputs.submodules }}
           token: ${{ secrets.SUBMODULE_TOKEN || github.token }}
+
+      # Private ekd-akd git dependencies (e.g. akd-auth): uv fetches them with the git CLI, which needs read
+      # access to the private repo. Only runs for Python repos that declare such a dependency; every other
+      # repo, and any run without a token, behaves exactly as before. The credential is injected through
+      # GIT_CONFIG_* environment variables for this job only: nothing is written to ~/.gitconfig, so it
+      # cannot outlive the job on the self-hosted runner. Secrets are masked in the log.
+      - name: Git credentials for private ekd-akd dependencies
+        if: ${{ inputs.language == 'python' }}
+        env:
+          TOKEN: ${{ secrets.ORG_PAT || secrets.SUBMODULE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! git grep -q -E '(git\+|git = ")https://github\.com/ekd-akd/' -- '*pyproject.toml' '*uv.lock'; then
+            echo "no private ekd-akd git dependency — skipping"
+            exit 0
+          fi
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::warning::private ekd-akd git dependency found but no SUBMODULE_TOKEN/ORG_PAT reached this workflow (callers need 'secrets: inherit'); uv sync will fail"
+            exit 0
+          fi
+          echo "::add-mask::$TOKEN"
+          {
+            echo "GIT_CONFIG_COUNT=1"
+            echo "GIT_CONFIG_KEY_0=url.https://x-access-token:${TOKEN}@github.com/ekd-akd/.insteadOf"
+            echo "GIT_CONFIG_VALUE_0=https://github.com/ekd-akd/"
+          } >> "$GITHUB_ENV"
+          echo "git credentials for github.com/ekd-akd configured for this job"
 
       # ---- Python: ruff lint + format check, pytest when a suite exists --------
       - name: Set up uv
