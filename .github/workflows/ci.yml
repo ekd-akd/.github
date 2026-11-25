@@ -64,6 +64,15 @@ on:
         type: string
         required: false
         default: "0.15.22"
+      auth-registry:
+        description: >-
+          python: check out ekd-akd/oauth (read-only, depth 1) and export AKD_AUTH_REGISTRY, the path of its
+          auth-registry.yaml, for the test run, so a service can test its auth defaults against the registry
+          (akd_auth.registry). Needs the private-dependency credentials of the step above, so it is only
+          meaningful on the self-hosted runner. Off by default.
+        type: boolean
+        required: false
+        default: false
       submodules:
         description: "actions/checkout submodules: 'false' | 'true' | 'recursive'"
         type: string
@@ -136,6 +145,22 @@ jobs:
             echo "GIT_CONFIG_VALUE_0=https://github.com/ekd-akd/"
           } >> "$GITHUB_ENV"
           echo "git credentials for github.com/ekd-akd configured for this job (source: $source)"
+
+      # Opt-in (auth-registry: true): the auth registry of ekd-akd/oauth for conformance tests. Uses the git
+      # credentials exported by the step above (GIT_CONFIG_* in GITHUB_ENV, this job only). Fails closed: a
+      # caller that asks for the registry and cannot get it must not silently skip the check.
+      - name: Auth registry for conformance tests
+        if: ${{ inputs.language == 'python' && inputs.auth-registry }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GIT_CONFIG_COUNT:-}" ]; then
+            echo "::error::auth-registry requested but no git credentials for ekd-akd are set (no private ekd-akd git dependency, or no token reached this job)"
+            exit 1
+          fi
+          git clone --depth 1 https://github.com/ekd-akd/oauth.git "${RUNNER_TEMP}/oauth"
+          test -s "${RUNNER_TEMP}/oauth/auth-registry.yaml"
+          echo "AKD_AUTH_REGISTRY=${RUNNER_TEMP}/oauth/auth-registry.yaml" >> "$GITHUB_ENV"
+          echo "auth registry: $(git -C "${RUNNER_TEMP}/oauth" rev-parse --short HEAD)"
 
       # ---- Python: ruff lint + format check, pytest when a suite exists --------
       - name: Set up uv
