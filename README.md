@@ -154,6 +154,9 @@ What each workflow does with the token:
 - **`ci.yml`** sets git credentials for `github.com/ekd-akd/` through job-scoped `GIT_CONFIG_*` variables before
   `uv sync` runs. Nothing is written to `~/.gitconfig`, so it cannot outlive the job on the self-hosted runner.
   Private repos must call it with `runs-on: '["self-hosted", "akd"]'` to see the host file.
+- **`ci.yml`, input `auth-registry: true`** (opt-in, default off) additionally clones `ekd-akd/oauth` (depth 1) with those
+  credentials and exports `AKD_AUTH_REGISTRY` (path of `auth-registry.yaml`) for the test run, so a service can test its auth
+  defaults against the registry (`akd_auth.registry`). It fails closed: no credentials, no clone, or an empty file fails the job.
 - **`nuk-deploy.yml`** passes the token to `docker build` as BuildKit secret `github_token`. The Dockerfile reads it
   with `RUN --mount=type=secret,id=github_token` in the *same* `RUN` that runs `uv sync`, and must not persist it
   (no `git config --global`, no `ARG`/`ENV`); use `GIT_CONFIG_*` variables inside that one command.
